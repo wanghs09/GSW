@@ -17,77 +17,81 @@ class poisson_gen(rv_discrete):
 
 poisson = poisson_gen(name="poisson")
 '''
+random.seed(2016)
+
+#GSW global params
+lm=80 #security level
+L=10  #level of circuits
 
 q=2**31 #primes(2**31)
 n=2**10
 CHUNK=2**10 #the number of rows in one chunk for matrix n*n
 
+Cfile1='cipher1' #initial ciphertext, encrypt(1) for the beginning of a multiplication chain
+
 PARAMS=collections.namedtuple('PARAMS',['m','n','ell','N','G', 'alpha','q', 'var'])
 KEY   =collections.namedtuple('KEY',['sbar','s'])
 
-random.seed(2016)
+#weights file list
+wt_lst=[]
+for i in range(0, params.ell-1): #less than 2**(ell-1)
+	wt_lst.append("w"+str(i))
+
+#integer ciphertexts file list
+pnum=6 #plaintext multiply chain number
+psize=7 #plaintext size <7-bit
+flst_pfx='int_'
+
+#Interger list
+int_lst=[np.random.random_integers(1,2**psize) for i in range(pnum)]  
+
+flst=[]
+for i in range(0, pnum): 
+	flst.append([])
+	for j in range(0, psize): 
+		flst[i].append(flst_pfx+str(i)+'_'+str(j))
+
+def note():
+	print "clean: clean cached params and regenerate"
+	print "00: boolean HE operation test"
+	print "00: integer HE operation test, the straightforward way"
+    print "10: run without cached params"
+    print "11: integer HE operation test, the Asiacrypt16 way"
 
 #boolean function
 def HE_bin_fun():
-	BM_SecEnc(params, 1, key, Cfile1)
-	BM_SecEnc(params, 0, key, Cfile2)
-	BM_SecEnc(params, 1, key, Cfile3)
+	params,key=params_read()
+
+	BM_SecEnc(params, 1, key, flst[1])
+	BM_SecEnc(params, 0, key, flst[2])
+	BM_SecEnc(params, 1, key, flst[3])
 	#BM_add(Cfile1, Cfile2, Cfile, params)
 	#BM_mult2(Cfile1, Cfile2, Cfile, params)
-	BM_mult3(Cfile1, Cfile2, Cfile, params,2)
-	BM_mult3(Cfile3, Cfile, Cfile_end, params,2) #multiply fresh ciphertext from left side
-	BM_mult3(Cfile3, Cfile_end, Cfile, params,2)
-	BM_Dec(params,Cfile1,key)
-	BM_Dec(params,Cfile2,key)
-	#BM_Dec(params,Cfile1,key)
-
-	BM_Dec(params,Cfile_end,key)
-	BM_Dec(params,Cfile,key)
+	BM_mult3(flst[1], flst[2], flst[4], params,32)
+	BM_mult3(flst[3], flst[4], flst[5], params,32) #mult an integer
+	BM_MPDec(params,flst[5],key)
 
 #homomorphic integer, straighforward way
 def HE_int_fun():
+	params,key=params_read()
+	
 	width= math.ceil(math.log(12*78*78,2))
 	print "plaintext width=%d" %width
 
-	BM_SecEnc(params, 12, key, Cfile1)
-	BM_SecEnc(params, 78, key, Cfile2)
-	BM_SecEnc(params, 1, key, Cfile3)
+	BM_SecEnc(params, 12, key, flst[1])
+	BM_SecEnc(params, 78, key, flst[2])
+	BM_SecEnc(params, 1, key, flst[3])
 	#BM_add(Cfile1, Cfile2, Cfile, params)
-	BM_mult3(Cfile1, Cfile2, Cfile, params,32)
-	BM_mult3(Cfile2, Cfile, Cfile_end, params,32) #mult an integer
-	BM_MPDec(params,Cfile,key)
-	BM_MPDec(params,Cfile_end,key)
-
-	BM_mult3(Cfile3, Cfile_end, Cfile, params,32) #mult a 1-bit
-	BM_MPDec(params,Cfile,key)
+	BM_mult3(flst[1], flst[2], flst[4], params,32)
+	BM_mult3(flst[3], flst[4], flst[5], params,32) #mult an integer
+	BM_MPDec(params,flst[5],key)
 
 #homomorphic integer, Asiacrypt way
-def HE_int_fun_Asiacrypt():
-	#clean
-	map(os.remove, glob.glob('cipher*'))
-	map(os.remove, glob.glob('int*'))
-
-	#parameters
-	pnum=6
-	psize=7
-	flst_pfx='int_'
-
-	flst=[]
-	for i in range(0, pnum): 
-		flst.append([])
-		for j in range(0, psize): 
-			flst[i].append(flst_pfx+str(i)+'_'+str(j))
-
-	#initial ciphertext
-	BM_SecEnc(params, 1, key, Cfile1)
-
-	#encrypt all integers to a ciphertext vector
-	#generate random numbers
-	int_lst=[np.random.random_integers(1,2**psize) for i in range(pnum)]  
-
-	print int_lst
+#Integer multplication chain
+def HE_int_fun_Asiacrypt(int prepared=0):
 	#[37, 15, 45, 86, 127, 98]
 	#noise simulation, Jun 13
+	'''
 	round 1
 	tmp=11274, noise=12070, m=555
 	round 2
@@ -98,17 +102,25 @@ def HE_int_fun_Asiacrypt():
 	tmp=-547513, noise=547513, m=272776950
 	round 5 # overflow, plaintext size>2**31
 	tmp=-253696, noise=844319, m=962337324
+	'''
+	if prepared==0: #unprepared
+		#initial ciphertext
+		BM_SecEnc(params, 1, key, Cfile1)
 
-	for i in range(0, pnum): 
-		BM_SecEnc_int_Asiacrypt(int_lst[i], flst[i], key, params, psize) #filename = 'int_integer name_weight'
-	print 'Encryption finished!'
-
-	#Integer multplication chain
-	fr='intr6' #file for intemediate results
-	for i in range(1, pnum):
-		print 'round '+str(i)
-		fr=BM_mult_int_Asiacrypt(fr, flst[i], wt_lst, params,32, psize) #11 is the max size of 1234, since 1234<2**11
-		BM_MPDec(params,fr,key)
+		for i in range(0, params.ell-1): #less than 2**(ell-1)
+			BM_PlainEnc(params, 2**i, key, wt_lst[i])			
+		
+		for i in range(0, pnum): 
+			BM_SecEnc_int_Asiacrypt(int_lst[i], flst[i], key, params, psize) #filename = 'int_integer name_weight'
+		print 'Encryption finished!'
+	else:		
+		params,key=params_read()
+	
+		fr='intr6' #file for intemediate results
+		for i in range(1, pnum):
+			print 'round '+str(i)
+			fr=BM_mult_int_Asiacrypt(fr, flst[i], wt_lst, params,32, psize) #11 is the max size of 1234, since 1234<2**11
+			BM_MPDec(params,fr,key)  #display the noise after every mult
 
 #generate params and write into a file
 def params_write(L):
@@ -129,6 +141,8 @@ def params_read():
 	params = pickle.load(fparams)
 	key = pickle.load(fparams)
 	fparams.close()
+	print params
+
 	yield params
 	yield key
 
