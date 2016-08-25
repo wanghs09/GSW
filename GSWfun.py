@@ -1,7 +1,5 @@
 #!/usr/bin/python
-import math
-import random
-import sys
+import math, random, sys
 import numpy as np
 import collections
 from scipy.stats import bernoulli,poisson,norm,expon
@@ -9,21 +7,15 @@ import tables as tb
 import pickle
 import glob,os,resource,time
 
-'''
-class poisson_gen(rv_discrete):
-	"Poisson distribution"
-	def _pmf(self, k, mu):
-		return math.exp(-mu) * mu**k / math.factorial(k)
 
-poisson = poisson_gen(name="poisson")
-'''
 random.seed(2016)
 
 #GSW global params
 lm=80 #security level
 L=10  #level of circuits
 
-q=2**31 #primes(2**31)
+q=2**31-1 #primes(2**31)
+ell=int(math.floor(math.log(q,2))+1)
 n=2**10
 CHUNK=2**10 #the number of rows in one chunk for matrix n*n
 
@@ -32,10 +24,12 @@ Cfile1='cipher1' #initial ciphertext, encrypt(1) for the beginning of a multipli
 PARAMS=collections.namedtuple('PARAMS',['m','n','ell','N','G', 'alpha','q', 'var'])
 KEY   =collections.namedtuple('KEY',['sbar','s'])
 
+params = ""
+key= ""
+
 #weights file list
 wt_lst=[]
-for i in range(0, params.ell-1): #less than 2**(ell-1)
-	wt_lst.append("w"+str(i))
+flst=[]
 
 #integer ciphertexts file list
 pnum=6 #plaintext multiply chain number
@@ -45,18 +39,21 @@ flst_pfx='int_'
 #Interger list
 int_lst=[np.random.random_integers(1,2**psize) for i in range(pnum)]  
 
-flst=[]
-for i in range(0, pnum): 
-	flst.append([])
-	for j in range(0, psize): 
-		flst[i].append(flst_pfx+str(i)+'_'+str(j))
-
 def note():
+	print "-----------------Function list------------------------"
 	print "clean: clean cached params and regenerate"
 	print "00: boolean HE operation test"
 	print "00: integer HE operation test, the straightforward way"
-    print "10: run without cached params"
-    print "11: integer HE operation test, the Asiacrypt16 way"
+	print "10: prepare for Asiacrypt16 multiplication chain"
+	print "11: integer HE operation test, the Asiacrypt16 way"
+	print "20: HE bit extraction"
+	print "------------------------------------------------------"
+
+#General q enc/dec test
+def Gq_test_fun():
+	params,key=params_read()
+	BM_SecEnc(params, 3, key, flst[1][1])
+	Gq_MPDec(params,flst[1][1],key)
 
 #boolean function
 def HE_bin_fun():
@@ -70,25 +67,61 @@ def HE_bin_fun():
 	BM_mult3(flst[1], flst[2], flst[4], params,32)
 	BM_mult3(flst[3], flst[4], flst[5], params,32) #mult an integer
 	BM_MPDec(params,flst[5],key)
-
+ 
 #homomorphic integer, straighforward way
 def HE_int_fun():
 	params,key=params_read()
-	
+
 	width= math.ceil(math.log(12*78*78,2))
 	print "plaintext width=%d" %width
 
-	BM_SecEnc(params, 12, key, flst[1])
-	BM_SecEnc(params, 78, key, flst[2])
-	BM_SecEnc(params, 1, key, flst[3])
+	BM_SecEnc(params, 12, key, flst[1][1])
+	BM_SecEnc(params, 78, key, flst[2][1])
+	BM_SecEnc(params, 1, key, flst[3][1])
 	#BM_add(Cfile1, Cfile2, Cfile, params)
-	BM_mult3(flst[1], flst[2], flst[4], params,32)
-	BM_mult3(flst[3], flst[4], flst[5], params,32) #mult an integer
-	BM_MPDec(params,flst[5],key)
+	BM_mult3(flst[1][1], flst[2][1], flst[4][1], params,32)
+	BM_mult3(flst[3][1], flst[4][1], flst[5][1], params,32) #mult an integer
+	
+	if params.q==2**(params.ell-1):
+		BM_MPDec(params,flst[5][1],key)
+	else:
+		Gq_MPDec(params,flst[5][1],key)
+
+#homomorphic bit extraction
+#dec_to_bin
+#http://www.binaryhexconverter.com/decimal-to-binary-converter
+def HE_ext_bit():
+	params,key=params_read()
+
+	randint=78
+	len=int(math.ceil(math.log(randint,2)))
+	print "Integer(bin):"
+	print dec_to_bin(randint, len)
+	print flst[0]
+	BM_SecEnc(params, randint, key, flst[0][0])
+
+	Cfile = tb.openFile(flst[0][0])
+	x=Cfile.root.x[:, (params.N-len-1):(params.N-1)] #pemultimate column
+	#x = h5file.createCArray(root,'x',tb.UInt32Atom(),shape=(params.n,params.N))
+	#x = x[:, (params.N-len-1):(params.N-1)] #N*len matrix
+	Cfile.close()
+
+	#for i in range(0, len-1):
+	#	x[:,(len-2-i)] = (2*x[:,(len-2-i)]-x[:,(len-1-i)])//2
+
+	for i in range(0, len-1):
+		x[:,i] = (2*x[:,i]-x[:,i+1])//2
+
+	#print x
+
+	#dec every bit
+	for i in range(len-1, -1, -1):
+		vec_Dec(x[:,i], key)
+	
 
 #homomorphic integer, Asiacrypt way
 #Integer multplication chain
-def HE_int_fun_Asiacrypt(int prepared=0):
+def HE_int_fun_Asiacrypt(prepared=0):
 	#[37, 15, 45, 86, 127, 98]
 	#noise simulation, Jun 13
 	'''
@@ -104,6 +137,10 @@ def HE_int_fun_Asiacrypt(int prepared=0):
 	tmp=-253696, noise=844319, m=962337324
 	'''
 	if prepared==0: #unprepared
+		map(os.remove, glob.glob('cipher*'))
+		map(os.remove, glob.glob('w*'))
+		map(os.remove, glob.glob('int*'))
+
 		#initial ciphertext
 		BM_SecEnc(params, 1, key, Cfile1)
 
@@ -137,6 +174,7 @@ def params_write(L):
 
 #read pre-calculated params from a file
 def params_read():
+	global params, key
 	fparams = open('params.file', 'rb')
 	params = pickle.load(fparams)
 	key = pickle.load(fparams)
@@ -346,6 +384,18 @@ def BM_mult_int_Asiacrypt(file, file_lst, wt_lst, params,colcal, psize):
 	return fr_lst[psize-1]
 	
 #########################################
+def ini():
+	#weights file list
+	global wt_lst
+	for i in range(0, ell-1): #less than 2**(ell-1)
+		wt_lst.append("w"+str(i))
+
+	global flst
+	for i in range(0, pnum): 
+		flst.append([])
+		for j in range(0, psize): 
+			flst[i].append(flst_pfx+str(i)+'_'+str(j))
+
 def Setup(L,LM=80):
 	#q=2**31-1 #primes(2**31)
 	#n=2**10
@@ -353,7 +403,7 @@ def Setup(L,LM=80):
 	#q=2**20-1 #primes(2**31)
 	#n=2**4 #small n to test functionality
 
-	ell=int(math.floor(math.log(q,2))+1)
+	
 	m=2*n*ell #O(nlogq)
 	N=int(n*ell)
 	alpha=10
@@ -412,7 +462,10 @@ def BM_Dec(params,fileC, key):
 	Cfile = tb.openFile(fileC)
 	cvec=Cfile.root.x[:, params.N-2] #pemultimate column
 	Cfile.close()
+	vec_Dec(cvec, key)
 
+#decode a vector ciphertext
+def vec_Dec(cvec, key):
 	tmp=np.dot(key.s,cvec) %params.q
 	print tmp
 	tmp=min(tmp, abs(2**(params.ell-1)-tmp)) #round to less than q/2
@@ -445,6 +498,46 @@ def BM_MPDec(params,fileC, key):
 		if noise>MAXnoise:
 			MAXnoise=noise
 	print 'tmp=%d, noise=%d, m=%d' %(tmp,MAXnoise, m)
+	
+	Cfile.close()
+	return m
+
+#Multi-precision decoding for integers 
+#with a general q
+def Gq_MPDec(params,fileC, key):
+	Cfile = tb.openFile(fileC)
+	
+	MAXnoise=0 #need the max noise coefficient
+	m=0
+	for i in range(0, params.ell-2):
+	#for i in range(0, 11):
+		cvec =Cfile.root.x[:, params.N-1-i] #pemultimate column
+		cvec2=Cfile.root.x[:, params.N-2-i] #the second column to get the differential
+
+		tmp=np.dot(key.s,cvec) %params.q
+		tmp2=np.dot(key.s,cvec2) %params.q
+
+		tmp=2*tmp2-tmp 
+
+		tmp=min(tmp, abs(2**(params.ell-1)-tmp))
+		if abs(2**(params.ell-2)-tmp)<abs(tmp):
+			m=2**i+m
+		#if tmp>=2**(params.ell-1):
+		#	m=2**i+m
+
+		#print m
+
+	m=2*m
+	#decode m[0]
+	cvec =Cfile.root.x[:, params.N-1] #pemultimate column
+	tmp=(np.dot(key.s,cvec) %params.q) - (m*2**(params.ell-1)%params.q) 
+	tmp=tmp//2**(params.ell-2)
+	print tmp
+	if (tmp==2) | (tmp==1) :
+		m=1+m
+
+	#print 'tmp=%d, noise=%d, m=%d' %(tmp,MAXnoise, m)
+	print 'm=%d' %(m)
 	
 	Cfile.close()
 	return m
@@ -568,3 +661,12 @@ def tst(params):
   R=np.random.random_integers(0,1,(params.N,params.m))
   e=Gau(params.m, params.var)
   print max(np.dot(R,e))  
+
+'''
+class poisson_gen(rv_discrete):
+	"Poisson distribution"
+	def _pmf(self, k, mu):
+		return math.exp(-mu) * mu**k / math.factorial(k)
+
+poisson = poisson_gen(name="poisson")
+'''  
