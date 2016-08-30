@@ -3,12 +3,16 @@ import math, random, sys
 import numpy as np
 import collections
 from scipy.stats import bernoulli,poisson,norm,expon
+#from scipy.stats import norm
+#import scipy
 import tables as tb
 import pickle
 import glob,os,resource,time
 
-
 random.seed(2016)
+
+#debug
+DEBUG=0
 
 #GSW global params
 lm=80 #security level
@@ -24,8 +28,7 @@ Cfile1='cipher1' #initial ciphertext, encrypt(1) for the beginning of a multipli
 PARAMS=collections.namedtuple('PARAMS',['m','n','ell','N','G', 'alpha','q', 'var'])
 KEY   =collections.namedtuple('KEY',['sbar','s'])
 
-params = ""
-key= ""
+params, key = "", ""
 
 #weights file list
 wt_lst=[]
@@ -33,11 +36,13 @@ flst=[]
 
 #integer ciphertexts file list
 pnum=6 #plaintext multiply chain number
-psize=7 #plaintext size <7-bit
-flst_pfx='int_'
+psize=19 #plaintext size <7-bit
+flst_pfx='int_' #prefix of file list
+
+ftmp, ftmp2 = 'ctmp',  'ctmp2'
 
 #Interger list
-int_lst=[np.random.random_integers(1,2**psize) for i in range(pnum)]  
+int_lst=[377001, 376915, 375415, 511411, 432336, 520148] #[np.random.random_integers(1,2**psize) for i in range(pnum)]  
 
 def note():
 	print "-----------------Function list------------------------"
@@ -52,8 +57,43 @@ def note():
 #General q enc/dec test
 def Gq_test_fun():
 	params,key=params_read()
-	BM_SecEnc(params, 3, key, flst[1][1])
-	Gq_MPDec(params,flst[1][1],key)
+
+	# m1=1
+	# BM_SecEnc(params, m1, key, ftmp)
+	# nd(params,ftmp,key, m1)
+
+	# BM_mult3(ftmp, wt_lst[10], ftmp2, params,32)
+	# nd(params,ftmp2,key, m1*2**10)
+
+	# fr=Cfile1 #file for intemediate results
+	#nd(params,fr,key, 1)
+	
+	# BM_SecEnc(params,0, key, flst[0][0])
+	# nd(params,flst[0][0],key, 0)
+	# nd(params,Cfile1,key, 1)
+	# nd(params,flst[0][0],key, 1)
+
+	#test a*2**k mod q
+	BM_SecEnc(params,int_lst[0], key, ftmp)
+	nd(params,ftmp,key, int_lst[0])
+	nd(params,wt_lst[10],key, 2**10)
+
+	BM_mult3(ftmp,  wt_lst[14], ftmp2, params, 35)
+	print str(int_lst[0]*2**14 %params.q)
+	nd(params,ftmp2,key, int_lst[0]*2**14 %params.q)
+
+	# BM_mult2(Cfile1, flst[0][0], ftmp2, params)
+	# BM_mult3(Cfile1,  flst[0][0], ftmp2, params, 32)#flst[0][0]
+	# BM_mult3(Cfile1,  ftmp2, ftmp, params, 32)#flst[0][0]
+	# nd(params,ftmp2,key, 0)
+	# nd(params,ftmp,key, 0)
+
+	# fr=BM_mult_int_Asiacrypt(fr, flst[0], wt_lst, params,32, psize) #11 is the max size of 1234, since 1234<2**11
+	# nd(params,fr,key, int_lst[0])
+	# fr=BM_mult_int_Asiacrypt(fr, flst[1], wt_lst, params,32, psize) #11 is the max size of 1234, since 1234<2**11
+	# nd(params,fr,key, int_lst[0]*int_lst[1])
+	#MPDec(params,flst[1][1],key)
+	
 
 #boolean function
 def HE_bin_fun():
@@ -72,20 +112,23 @@ def HE_bin_fun():
 def HE_int_fun():
 	params,key=params_read()
 
-	width= math.ceil(math.log(12*78*78,2))
+	m1=12
+	m2=78
+	m3=79
+	width= math.ceil(math.log(m1*m2*m3,2))
 	print "plaintext width=%d" %width
 
-	BM_SecEnc(params, 12, key, flst[1][1])
-	BM_SecEnc(params, 78, key, flst[2][1])
-	BM_SecEnc(params, 1, key, flst[3][1])
+	BM_SecEnc(params, m1, key, flst[1][1])
+	BM_SecEnc(params, m2, key, flst[2][1])
+	BM_SecEnc(params, m3, key, flst[3][1])
 	#BM_add(Cfile1, Cfile2, Cfile, params)
 	BM_mult3(flst[1][1], flst[2][1], flst[4][1], params,32)
+	nd(params,flst[4][1],key, m1*m2)
+
 	BM_mult3(flst[3][1], flst[4][1], flst[5][1], params,32) #mult an integer
-	
-	if params.q==2**(params.ell-1):
-		BM_MPDec(params,flst[5][1],key)
-	else:
-		Gq_MPDec(params,flst[5][1],key)
+	nd(params,flst[5][1],key, m1*m2*m3)
+
+	#MPDec(params,flst[5][1],key)
 
 #homomorphic bit extraction
 #dec_to_bin
@@ -102,7 +145,7 @@ def HE_ext_bit():
 
 	Cfile = tb.openFile(flst[0][0])
 	x=Cfile.root.x[:, (params.N-len-1):(params.N-1)] #pemultimate column
-	#x = h5file.createCArray(root,'x',tb.UInt32Atom(),shape=(params.n,params.N))
+	#x = h5file.createCArray(root,'x',tb.Int64Atom(),shape=(params.n,params.N))
 	#x = x[:, (params.N-len-1):(params.N-1)] #N*len matrix
 	Cfile.close()
 
@@ -122,6 +165,7 @@ def HE_ext_bit():
 #homomorphic integer, Asiacrypt way
 #Integer multplication chain
 def HE_int_fun_Asiacrypt(prepared=0):
+	params,key=params_read()
 	#[37, 15, 45, 86, 127, 98]
 	#noise simulation, Jun 13
 	'''
@@ -141,23 +185,46 @@ def HE_int_fun_Asiacrypt(prepared=0):
 		map(os.remove, glob.glob('w*'))
 		map(os.remove, glob.glob('int*'))
 
-		#initial ciphertext
+		#initial ciphertext=enc(1)
 		BM_SecEnc(params, 1, key, Cfile1)
 
+		#encrypt weights
 		for i in range(0, params.ell-1): #less than 2**(ell-1)
 			BM_PlainEnc(params, 2**i, key, wt_lst[i])			
 		
-		for i in range(0, pnum): 
+		#encrypt integers
+		for i in range(0, 5): 
+		#for i in range(0, pnum):
 			BM_SecEnc_int_Asiacrypt(int_lst[i], flst[i], key, params, psize) #filename = 'int_integer name_weight'
+
 		print 'Encryption finished!'
 	else:		
-		params,key=params_read()
-	
-		fr='intr6' #file for intemediate results
-		for i in range(1, pnum):
-			print 'round '+str(i)
-			fr=BM_mult_int_Asiacrypt(fr, flst[i], wt_lst, params,32, psize) #11 is the max size of 1234, since 1234<2**11
-			BM_MPDec(params,fr,key)  #display the noise after every mult
+		#test noise of weights
+		# for i in range(0, pnum):
+			# nd(params,wt_lst[i],key, 2**i)
+
+		fr=Cfile1 #file for intemediate results
+		plt=1
+		i=0
+
+		fr=BM_mult_int_Asiacrypt(0, fr, flst[0], wt_lst, params,32, psize) #initial ones
+		map(os.remove, glob.glob('int_'+str(i)+'*')) #save disk space
+
+		print '-----------round '+str(0)
+		plt=plt*int_lst[0] %params.q
+		nd(params,fr,key, plt)
+
+		# for i in range(0, pnum):
+		for i in range(1, 5):
+			fr=BM_mult_int_Asiacrypt(1, fr, flst[i], wt_lst, params,32, psize) #11 is the max size of 1234, since 1234<2**11
+			map(os.remove, glob.glob('int_'+str(i)+'*'))
+
+			#plaintext
+			print '-----------round '+str(i)
+			plt=plt*int_lst[i] %params.q
+			nd(params,fr,key, plt)
+
+			#MPDec(params,fr,key)  #display the noise after every mult
 
 #generate params and write into a file
 def params_write(L):
@@ -189,7 +256,7 @@ def test_table():
 	h5file = tb.openFile('test.h5', mode='w', title="Test Array")
 	root = h5file.root
 	#Float64Atom
-	x = h5file.createCArray(root,'x',tb.UInt32Atom(),shape=(ndim,ndim))
+	x = h5file.createCArray(root,'x',tb.Int64Atom(),shape=(ndim,ndim))
 	x[:100,:100] = np.random.random_integers(0, 100,size=(100,100)) # Now put in some data
 	#print x[1:3,1:10]
 	h5file.close()
@@ -198,22 +265,21 @@ def test_table():
 def BM_gen(file,params):
 	h5file = tb.openFile(file, mode='w', title="Test Array")
 	root = h5file.root
-	x = h5file.createCArray(root,'x',tb.UInt32Atom(),shape=(params.n,params.n))
+	x = h5file.createCArray(root,'x',tb.Int64Atom(),shape=(params.n,params.n))
 	x[:CHUNK,:] = np.random.random_integers(0, params.q,size=(CHUNK,params.n)) # Now put in some data
-	#print h5file
 	h5file.close()
 
 #big matrix G generation
 def BM_G(file,n,ell,N):
 	h5file = tb.openFile(file, mode='w', title="Test Array")
 	root = h5file.root
-	x = h5file.createCArray(root,'x',tb.UInt32Atom(),shape=(n,N))
+	x = h5file.createCArray(root,'x',tb.Int64Atom(),shape=(n,N))
 	
 	g = [ 2**z for z in np.arange(ell) ]
 	for i in range(0, n):
 		x[i,ell*i:ell*(i+1)] = g
 	
-	#print x[0,0:ell]
+	#print 'G:'+str(x[0,0:ell])
 	h5file.close()
 
 #big matrix addition
@@ -224,7 +290,7 @@ def BM_add(file1, file2, file, params):
 	
 	h5file = tb.openFile(file, mode='w', title="Test Array")	
 	root = h5file.root
-	x = h5file.createCArray(root,'x',tb.UInt32Atom(),shape=(params.n,params.N))
+	x = h5file.createCArray(root,'x',tb.Int64Atom(),shape=(params.n,params.N))
 	
 	for i in range(0, params.n//CHUNK):
 		x1 = h5file1.root.x[CHUNK*i:CHUNK*(i+1), :]
@@ -244,7 +310,7 @@ def BM_mult(file1, file2, file3, params):
 	
 	h5file3 = tb.openFile(file3, mode='w', title="Test Array")	
 	root3 = h5file3.root
-	x3 = h5file2.createCArray(root3,'x',tb.UInt32Atom(),shape=(params.N,params.N))
+	x3 = h5file2.createCArray(root3,'x',tb.Int64Atom(),shape=(params.N,params.N))
 	
 	for i in range(0, params.N//CHUNK):
 		for j in range(0, params.N//CHUNK):
@@ -265,30 +331,18 @@ def BM_mult2(file1, file2, file3, params):
 	
 	h5file3 = tb.openFile(file3, mode='w', title="Test Array")	
 	root3 = h5file3.root
-	x3 = h5file2.createCArray(root3,'x',tb.UInt32Atom(),shape=(params.n,params.N))
+	x3 = h5file2.createCArray(root3,'x',tb.Int64Atom(),shape=(params.n,params.N))
 	
 	for i in range(0, params.n//CHUNK):
 		for j in range(0, params.N//CHUNK):
-			#print 'start timer:'
-			#start=time.time()
 			x1 = h5file1.root.x[CHUNK*i:CHUNK*(i+1), :]
 			x2 = h5file2.root.x[:,CHUNK*j:CHUNK*(j+1)]
-			#print time.time()-start
-			#start=time.time()
 
 			x2inv=Ginv(x2, params)
-			#print time.time()-start
-			#start=time.time()
 
 			y=np.dot(x1,x2inv) %params.q
-			#print time.time()-start
-			#start=time.time()
 
 			x3[CHUNK*i:CHUNK*(i+1), CHUNK*j:CHUNK*(j+1)]=y # store
-			#print time.time()-start
-			#start=time.time()
-
-		#print i
 	h5file1.close()
 	h5file2.close()
 	h5file3.close()
@@ -304,30 +358,15 @@ def BM_mult3(file1, file2, file3, params,colcal):
 	
 	h5file3 = tb.openFile(file3, mode='w', title="Test Array")	
 	root3 = h5file3.root
-	x3 = h5file2.createCArray(root3,'x',tb.UInt32Atom(),shape=(params.n,params.N))
+	x3 = h5file2.createCArray(root3,'x',tb.Int64Atom(),shape=(params.n,params.N))
 	
 	for i in range(0, params.n//CHUNK):
-		j=params.N-2
+		j=params.N-1
 
-		#start=time.time()
 		x1 = h5file1.root.x[CHUNK*i:CHUNK*(i+1), :]
 		x2 = h5file2.root.x[:,(j-colcal):(j+1)] ##but we cal two columns to avoid np array error
-		#print time.time()-start
-		#start=time.time()
-
-		x2G=Ginv(x2, params)
-		#print time.time()-start
-		#start=time.time()
-
-		y=np.dot(x1,x2G) %params.q
-		#print time.time()-start
-		#start=time.time()
-
-		x3[CHUNK*i:CHUNK*(i+1), (j-colcal):(j+1)]=y # store
-
-		#print time.time()-start
-		#print i
-		#print x2G
+		x2G= Ginv(x2, params)
+		x3[CHUNK*i:CHUNK*(i+1), (j-colcal):(j+1)]=np.dot(x1,x2G) %params.q
 	h5file1.close()
 	h5file2.close()
 	h5file3.close()
@@ -345,7 +384,8 @@ def BM_SecEnc_int_Asiacrypt(integer, flst, key, params, psize):
 #integer multiplication
 #fr_lst[params.ell-2] is the result ciphertext
 #psize: plaintext size, so that only psize weights will be used
-def BM_mult_int_Asiacrypt(file, file_lst, wt_lst, params,colcal, psize):
+#mode: 0 for inital ciphertext, no need to use mult2
+def BM_mult_int_Asiacrypt(mode, file, file_lst, wt_lst, params,colcal, psize):
 	map(os.remove, glob.glob('tmp*'))
 
 	ftmp_lst=[]
@@ -366,9 +406,19 @@ def BM_mult_int_Asiacrypt(file, file_lst, wt_lst, params,colcal, psize):
 		#print resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1000
 
 		#(C1[i]*Ginv(C2))* Ginv(W[i]) 
-		BM_mult2(file_lst[i], file, ftmp_lst[i], params)
-		BM_mult3(ftmp_lst[i], wt_lst[i], ftmp2_lst[i], params,colcal)
-
+		if mode==0:
+			BM_mult3(file_lst[i], wt_lst[i], ftmp2_lst[i], params,params.ell)
+		else:
+			BM_mult2(file_lst[i], file, ftmp_lst[i], params)
+			BM_mult3(ftmp_lst[i], wt_lst[i], ftmp2_lst[i], params,params.ell)
+		
+		#test every step noise
+		if DEBUG:
+			print 'bit '+str(i)+':'
+			nd(params,ftmp_lst[i],key, 2**i)
+			nd(params,ftmp_lst[i],key, 0)
+			nd(params,ftmp2_lst[i],key, 2**i)
+			nd(params,ftmp2_lst[i],key, 0)
 		#C1[i]* (Ginv(C2)* Ginv(W[i]) )
 		#BM_mult3(file, wt_lst[i], ftmp_lst[i], params,colcal)
 		#BM_mult3(file_lst[i], ftmp_lst[i], ftmp2_lst[i], params,colcal)
@@ -434,8 +484,8 @@ def BM_SecEnc(params,m, key, fileC):
 	#create ciphertext file
 	Cfile = tb.openFile(fileC, mode='w', title="Test Array")
 	root = Cfile.root
-	x = Cfile.createCArray(root,'x',tb.UInt32Atom(),shape=(params.n,params.N))
-	
+	x = Cfile.createCArray(root,'x',tb.Int64Atom(),shape=(params.n,params.N))
+
 	Gfile = tb.openFile(params.G)
 	for i in range(0, params.n):
 		x1 = Gfile.root.x[i, :]
@@ -449,12 +499,14 @@ def BM_PlainEnc(params,m, key, fileC):
 	#create ciphertext file
 	Cfile = tb.openFile(fileC, mode='w', title="Test Array")
 	root = Cfile.root
-	x = Cfile.createCArray(root,'x',tb.UInt32Atom(),shape=(params.n,params.N))
+	x = Cfile.createCArray(root,'x',tb.Int64Atom(),shape=(params.n,params.N))
 	
 	Gfile = tb.openFile(params.G)
 	for i in range(0, params.n):
 		x1 = Gfile.root.x[i, :]
-		x[i,:]  = m*x1 %params.q
+		tmp  = (m*x1) %params.q
+		x[i,:]=tmp
+		# print str(i)+':'+str(x[i,:])
 	Gfile.close()
 	Cfile.close()
 
@@ -477,7 +529,33 @@ def vec_Dec(cvec, key):
 	print 'noise=%d, m=%d' %(noise, m)
 	return m
 
+#noise detection, given the expected plaintext plt
+def nd(params, fileC, key, plt):
+	Cfile = tb.openFile(fileC)
+	cvec=Cfile.root.x[:, (params.N-params.ell):(params.N-1)]  #ell-1 columns
+	cvec2=np.dot(key.s,cvec) %params.q
+	Cfile.close()
+
+	#get ciphertext cvec2 with zero noise
+	noise=np.ones(params.ell-1)
+	for i in range(0, params.ell-1):
+		noise[i]=abs(2**i*plt%params.q-cvec2[i])
+		noise[i]=min(abs(noise[i]), abs(params.q-noise[i]))  
+		if DEBUG:
+			print  str(cvec2[i])+':'+ str(2**i*plt%params.q)
+
+	# print 'noise vector:'+str(noise)
+	noise=max(noise)
+	print 'noise:'+str(noise)
+	return noise
+
 #Multi-precision decoding for integers
+def MPDec(params,fileC, key):
+	if params.q==2**(params.ell-1):
+		BM_MPDec(params,fileC,key)
+	else:
+		Gq_MPDec(params,fileC,key)
+
 def BM_MPDec(params,fileC, key):
 	Cfile = tb.openFile(fileC)
 	
@@ -514,14 +592,26 @@ def Gq_MPDec(params,fileC, key):
 		cvec =Cfile.root.x[:, params.N-1-i] #pemultimate column
 		cvec2=Cfile.root.x[:, params.N-2-i] #the second column to get the differential
 
-		tmp=np.dot(key.s,cvec) %params.q
-		tmp2=np.dot(key.s,cvec2) %params.q
+		tmp=(np.dot(key.s,cvec) -m*2**(params.ell-2-i)) %params.q
+		tmp2=(np.dot(key.s,cvec2) -m*2**(params.ell-3-i)) %params.q
 
-		tmp=2*tmp2-tmp 
+		tmp=2*tmp2-tmp  
+		if DEBUG:
+			print str(i)+':'+bin(tmp)
 
-		tmp=min(tmp, abs(2**(params.ell-1)-tmp))
-		if abs(2**(params.ell-2)-tmp)<abs(tmp):
-			m=2**i+m
+
+		#tmp=tmp//2**(params.ell-2)
+		#print tmp
+		#if (tmp==2) | (tmp==1) :
+
+		if not((tmp<=0) | (abs(tmp)<2**(params.ell-3)) ):
+			m=m+2**i
+
+
+		#tmp=min(tmp, abs(2**(params.ell-1)-tmp))
+		#if abs(2**(params.ell-2)-tmp)<abs(tmp):
+		#	m=2**i+m
+		
 		#if tmp>=2**(params.ell-1):
 		#	m=2**i+m
 
@@ -531,13 +621,14 @@ def Gq_MPDec(params,fileC, key):
 	#decode m[0]
 	cvec =Cfile.root.x[:, params.N-1] #pemultimate column
 	tmp=(np.dot(key.s,cvec) %params.q) - (m*2**(params.ell-1)%params.q) 
-	tmp=tmp//2**(params.ell-2)
-	print tmp
-	if (tmp==2) | (tmp==1) :
-		m=1+m
+	if DEBUG:
+		print str(i)+':'+bin(tmp)
+
+	if not((tmp<=0) | (abs(tmp)<2**(params.ell-3)) ):
+		m=m+1
 
 	#print 'tmp=%d, noise=%d, m=%d' %(tmp,MAXnoise, m)
-	print 'm=%d' %(m)
+	print 'plaintext=%d' %(m)
 	
 	Cfile.close()
 	return m
@@ -630,10 +721,14 @@ def DBI(mat,q):
 def Ginv(mat,params):
 	len=params.ell
 	x=np.zeros((mat.shape[0]*len, mat.shape[1]))
-	mat2=mat
+
+	mat2=mat% params.q
 	for i in range(0, len):
 		x[i:mat.shape[0]*len:len, :]=mat2%2 #every mat.shape[0] element, LSB
 		mat2=mat2//2 #right shift
+
+	np.set_printoptions(threshold=np.inf)
+	# print x
 	return x
 
 #[LSB LSB+1 ... MSB]
