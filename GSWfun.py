@@ -18,10 +18,12 @@ DEBUG=0
 lm=80 #security level
 L=10  #level of circuits
 
-q=2**31-1 #primes(2**31)
+q=2**31-2**6-1 #primes(2**31)
+#q=2**31-2**5-1 #primes(2**31)
 ell=int(math.floor(math.log(q,2))+1)
 n=2**10
 CHUNK=2**10 #the number of rows in one chunk for matrix n*n
+
 
 Cfile1='cipher1' #initial ciphertext, encrypt(1) for the beginning of a multiplication chain
 
@@ -35,14 +37,18 @@ wt_lst=[]
 flst=[]
 
 #integer ciphertexts file list
-pnum=6 #plaintext multiply chain number
-psize=19 #plaintext size <7-bit
-flst_pfx='int_' #prefix of file list
-
-ftmp, ftmp2 = 'ctmp',  'ctmp2'
+pnum=7 #plaintext multiply chain number
 
 #Interger list
-int_lst=[377001, 376915, 375415, 511411, 432336, 520148] #[np.random.random_integers(1,2**psize) for i in range(pnum)]  
+#int_lst=[377001, 376915, 375415, 511411, 432336, 520148] #[np.random.random_integers(1,2**psize) for i in range(pnum)]  
+int_lst=[120, 117, 65, 97, 45, 113, 77]
+
+#use naf or not, if use psize should have one more bit
+#plaintext size <7-bit
+flag_NAF, flag_partial_add, psize=1, 1, 9
+
+flst_pfx, ftmp, ftmp2, ftmp3='int_', 'ctmp',  'ctmp2', 'ctmp3'
+
 
 def note():
 	print "-----------------Function list------------------------"
@@ -68,19 +74,23 @@ def Gq_test_fun():
 	# fr=Cfile1 #file for intemediate results
 	#nd(params,fr,key, 1)
 	
-	# BM_SecEnc(params,0, key, flst[0][0])
-	# nd(params,flst[0][0],key, 0)
-	# nd(params,Cfile1,key, 1)
-	# nd(params,flst[0][0],key, 1)
+	BM_SecEnc(params,1, key, ftmp)
+	BM_SecEnc(params,1, key, ftmp2)
+	# BM_PlainEnc(params, 2**1, key, wt_lst[1])
+	BM_mult3(ftmp,  ftmp2, ftmp3, params, 32)
 
+
+	print nd(params,ftmp,key, 1)
+	print nd(params,ftmp3,key, 1)
 	#test a*2**k mod q
-	BM_SecEnc(params,int_lst[0], key, ftmp)
-	nd(params,ftmp,key, int_lst[0])
-	nd(params,wt_lst[10],key, 2**10)
+	# m1=-1
+	# BM_SecEnc(params,m1, key, ftmp)
+	# nd(params,ftmp,key, m1%params.q)
+	# nd(params,wt_lst[10],key, 2**10)
 
-	BM_mult3(ftmp,  wt_lst[14], ftmp2, params, 35)
-	print str(int_lst[0]*2**14 %params.q)
-	nd(params,ftmp2,key, int_lst[0]*2**14 %params.q)
+	# BM_mult3(ftmp,  wt_lst[14], ftmp2, params, 35)
+	# print str(m1*2**14 %params.q)
+	# nd(params,ftmp2,key, m1*2**14 %params.q)
 
 	# BM_mult2(Cfile1, flst[0][0], ftmp2, params)
 	# BM_mult3(Cfile1,  flst[0][0], ftmp2, params, 32)#flst[0][0]
@@ -189,11 +199,11 @@ def HE_int_fun_Asiacrypt(prepared=0):
 		BM_SecEnc(params, 1, key, Cfile1)
 
 		#encrypt weights
-		for i in range(0, params.ell-1): #less than 2**(ell-1)
+		for i in range(1, params.ell-1): #less than 2**(ell-1)
 			BM_PlainEnc(params, 2**i, key, wt_lst[i])			
 		
 		#encrypt integers
-		for i in range(0, 5): 
+		for i in range(0, 7): 
 		#for i in range(0, pnum):
 			BM_SecEnc_int_Asiacrypt(int_lst[i], flst[i], key, params, psize) #filename = 'int_integer name_weight'
 
@@ -207,22 +217,26 @@ def HE_int_fun_Asiacrypt(prepared=0):
 		plt=1
 		i=0
 
-		fr=BM_mult_int_Asiacrypt(0, fr, flst[0], wt_lst, params,32, psize) #initial ones
+		fr=BM_mult_int_Asiacrypt(0, fr, flst[0], wt_lst, params,32, psize, 1) #initial ones
 		map(os.remove, glob.glob('int_'+str(i)+'*')) #save disk space
 
 		print '-----------round '+str(0)
 		plt=plt*int_lst[0] %params.q
-		nd(params,fr,key, plt)
+		print 'plaintext: '+str(plt)
+		print 'noise='+ str(max(nd(params,fr,key, plt)))
 
 		# for i in range(0, pnum):
-		for i in range(1, 5):
-			fr=BM_mult_int_Asiacrypt(1, fr, flst[i], wt_lst, params,32, psize) #11 is the max size of 1234, since 1234<2**11
+		for i in range(1, 7):
+			fr=BM_mult_int_Asiacrypt(1, fr, flst[i], wt_lst, params,32, psize, plt) #11 is the max size of 1234, since 1234<2**11
 			map(os.remove, glob.glob('int_'+str(i)+'*'))
+			map(os.remove, glob.glob('*tmp*'))
 
 			#plaintext
 			print '-----------round '+str(i)
 			plt=plt*int_lst[i] %params.q
-			nd(params,fr,key, plt)
+			print 'plaintext: '+str(plt)
+			print 'noise='+ str(max(nd(params,fr,key, plt)))
+
 
 			#MPDec(params,fr,key)  #display the noise after every mult
 
@@ -284,7 +298,7 @@ def BM_G(file,n,ell,N):
 
 #big matrix addition
 #file=file1+file2
-def BM_add(file1, file2, file, params):
+def BM_add(file1, file2, file, params, flag_partial_add):
 	h5file1 = tb.open_file(file1)
 	h5file2 = tb.open_file(file2)	
 	
@@ -293,10 +307,14 @@ def BM_add(file1, file2, file, params):
 	x = h5file.createCArray(root,'x',tb.Int64Atom(),shape=(params.n,params.N))
 	
 	for i in range(0, params.n//CHUNK):
-		x1 = h5file1.root.x[CHUNK*i:CHUNK*(i+1), :]
-		x2 = h5file2.root.x[CHUNK*i:CHUNK*(i+1), :]
-
-		x[CHUNK*i:CHUNK*(i+1), :]=x1+x2 %params.q
+		if flag_partial_add==0:
+			x1 = h5file1.root.x[CHUNK*i:CHUNK*(i+1), :]
+			x2 = h5file2.root.x[CHUNK*i:CHUNK*(i+1), :]
+			x[CHUNK*i:CHUNK*(i+1), :]=x1+x2 %params.q
+		else:
+			x1 = h5file1.root.x[CHUNK*i:CHUNK*(i+1), (params.N-params.ell): params.N]
+			x2 = h5file2.root.x[CHUNK*i:CHUNK*(i+1), (params.N-params.ell): params.N]
+			x[CHUNK*i:CHUNK*(i+1), (params.N-params.ell): params.N]=x1+x2 %params.q
 
 	h5file1.close()
 	h5file2.close()
@@ -352,7 +370,7 @@ def BM_mult2(file1, file2, file3, params):
 #colcal is the number of columns to cal
 #big matrix mult with G^{-1}
 #file3=file1*file2
-def BM_mult3(file1, file2, file3, params,colcal):
+def BM_mult3(file1, file2, file3, params,colcal): #ignore colcal
 	h5file1 = tb.open_file(file1)
 	h5file2 = tb.open_file(file2)	
 	
@@ -361,12 +379,12 @@ def BM_mult3(file1, file2, file3, params,colcal):
 	x3 = h5file2.createCArray(root3,'x',tb.Int64Atom(),shape=(params.n,params.N))
 	
 	for i in range(0, params.n//CHUNK):
-		j=params.N-1
+		j=params.N
 
 		x1 = h5file1.root.x[CHUNK*i:CHUNK*(i+1), :]
-		x2 = h5file2.root.x[:,(j-colcal):(j+1)] ##but we cal two columns to avoid np array error
+		x2 = h5file2.root.x[:,(j-params.ell):j] ##but we cal two columns to avoid np array error
 		x2G= Ginv(x2, params)
-		x3[CHUNK*i:CHUNK*(i+1), (j-colcal):(j+1)]=np.dot(x1,x2G) %params.q
+		x3[CHUNK*i:CHUNK*(i+1), (j-params.ell):j]=np.dot(x1,x2G) %params.q
 	h5file1.close()
 	h5file2.close()
 	h5file3.close()
@@ -375,8 +393,17 @@ def BM_mult3(file1, file2, file3, params,colcal):
 #integer encryption
 #fr_lst[params.ell-2] is the result ciphertext
 #the filename defines the prefix of the ciphertext file names
+#flag_NAF: use naf or not
 def BM_SecEnc_int_Asiacrypt(integer, flst, key, params, psize):
-	B_lst=dec_to_bin(integer, params.ell)
+	#encoding
+	if flag_NAF==1:
+		B_lst=naf(integer, params.ell)
+	else:
+		B_lst=dec_to_bin(integer, params.ell)
+
+	# print B_lst
+
+	#encryption
 	for i in range(0, psize):
 		BM_SecEnc(params, B_lst[i], key, flst[i])
 
@@ -385,12 +412,11 @@ def BM_SecEnc_int_Asiacrypt(integer, flst, key, params, psize):
 #fr_lst[params.ell-2] is the result ciphertext
 #psize: plaintext size, so that only psize weights will be used
 #mode: 0 for inital ciphertext, no need to use mult2
-def BM_mult_int_Asiacrypt(mode, file, file_lst, wt_lst, params,colcal, psize):
+#plt: the plaintext number encrypted in file
+def BM_mult_int_Asiacrypt(mode, file, file_lst, wt_lst, params,colcal, psize, plt):
 	map(os.remove, glob.glob('tmp*'))
 
-	ftmp_lst=[]
-	ftmp2_lst=[]
-	fr_lst=[]
+	ftmp_lst, ftmp2_lst, fr_lst=[], [], []
 	for i in range(0, params.ell-1): #less than 2**(ell-1)
 		ftmp_lst.append('tmp'+str(i))
 		ftmp2_lst.append('tmp-2'+str(i))
@@ -409,16 +435,24 @@ def BM_mult_int_Asiacrypt(mode, file, file_lst, wt_lst, params,colcal, psize):
 		if mode==0:
 			BM_mult3(file_lst[i], wt_lst[i], ftmp2_lst[i], params,params.ell)
 		else:
-			BM_mult2(file_lst[i], file, ftmp_lst[i], params)
+			# BM_mult2(file_lst[i], file, ftmp_lst[i], params)
+			BM_mult3(file_lst[i], file, ftmp_lst[i], params, params.ell)
 			BM_mult3(ftmp_lst[i], wt_lst[i], ftmp2_lst[i], params,params.ell)
 		
 		#test every step noise
-		if DEBUG:
+		if 1:
 			print 'bit '+str(i)+':'
-			nd(params,ftmp_lst[i],key, 2**i)
-			nd(params,ftmp_lst[i],key, 0)
-			nd(params,ftmp2_lst[i],key, 2**i)
-			nd(params,ftmp2_lst[i],key, 0)
+			noise1=nd(params,ftmp2_lst[i],key, (2**i * plt)%params.q )
+			noise2=nd(params,ftmp2_lst[i],key, (-2**i * plt)%params.q)
+			noise3=nd(params,ftmp2_lst[i],key, 0)
+
+			noise=min(max(noise1), max(noise2), max(noise3))
+			if noise==max(noise1):
+				print noise1
+			elif noise==max(noise2):
+				print noise2
+			elif noise==max(noise3):
+				print noise3
 		#C1[i]* (Ginv(C2)* Ginv(W[i]) )
 		#BM_mult3(file, wt_lst[i], ftmp_lst[i], params,colcal)
 		#BM_mult3(file_lst[i], ftmp_lst[i], ftmp2_lst[i], params,colcal)
@@ -426,10 +460,8 @@ def BM_mult_int_Asiacrypt(mode, file, file_lst, wt_lst, params,colcal, psize):
 		#initial accumulator with ftmp_lst[0]
 		if i==0:
 			fr_lst[0]=ftmp2_lst[0]
-
-		#sum
-		if i>0:
-			BM_add(ftmp2_lst[i], fr_lst[i-1], fr_lst[i], params)
+		else:#sum
+			BM_add(ftmp2_lst[i], fr_lst[i-1], fr_lst[i], params, 1) #only need to add part of the ciphertext
 	
 	return fr_lst[psize-1]
 	
@@ -507,6 +539,7 @@ def BM_PlainEnc(params,m, key, fileC):
 		tmp  = (m*x1) %params.q
 		x[i,:]=tmp
 		# print str(i)+':'+str(x[i,:])
+	# print str(x[params.n-1, (params.N-params.ell) : params.N])
 	Gfile.close()
 	Cfile.close()
 
@@ -532,21 +565,21 @@ def vec_Dec(cvec, key):
 #noise detection, given the expected plaintext plt
 def nd(params, fileC, key, plt):
 	Cfile = tb.openFile(fileC)
-	cvec=Cfile.root.x[:, (params.N-params.ell):(params.N-1)]  #ell-1 columns
+	cvec=Cfile.root.x[:, (params.N-params.ell):(params.N)]  #ell-1 columns
 	cvec2=np.dot(key.s,cvec) %params.q
 	Cfile.close()
 
 	#get ciphertext cvec2 with zero noise
-	noise=np.ones(params.ell-1)
-	for i in range(0, params.ell-1):
+	noise=np.ones(params.ell)
+	for i in range(0, params.ell):
 		noise[i]=abs(2**i*plt%params.q-cvec2[i])
 		noise[i]=min(abs(noise[i]), abs(params.q-noise[i]))  
-		if DEBUG:
+		if 1:
 			print  str(cvec2[i])+':'+ str(2**i*plt%params.q)
 
 	# print 'noise vector:'+str(noise)
-	noise=max(noise)
-	print 'noise:'+str(noise)
+	# noise=max(noise)
+	# print 'noise:'+str(noise)
 	return noise
 
 #Multi-precision decoding for integers
@@ -727,8 +760,8 @@ def Ginv(mat,params):
 		x[i:mat.shape[0]*len:len, :]=mat2%2 #every mat.shape[0] element, LSB
 		mat2=mat2//2 #right shift
 
-	np.set_printoptions(threshold=np.inf)
-	# print x
+	# np.set_printoptions(threshold=np.inf)
+	# print np.sum(x, axis=0)
 	return x
 
 #[LSB LSB+1 ... MSB]
@@ -741,10 +774,28 @@ def dec_to_bin(x,len):
 
 	return np.flipud(x)
 
+#NAF encoder
+#no continuous 1
+def naf(k,len):
+	x=[ 0 for z in range(len) ]
+
+	i=0
+	while k>=1:
+		if k%2==1:
+			x[i]=2- (k%4)
+			k=k - x[i]
+		else:
+			x[i]=0
+		k=k//2
+		i=i+1
+
+	return x
+
 def Gau(n_sample, var):
   x=norm.rvs(scale=var,size=n_sample)
   x = [ int(z) for z in x ]
   x=np.asarray(x).reshape(-1,1)
+  # print 'error:' + str(x)
   return x
 
 def Noise(val, params):
